@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Analysis Workbench · Experimental records</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/archive.css">
+  <script type="module" src="/archive.mjs"></script>
+</head>
+<body>
+  <header>
+    <div class="brand"><span class="mark">∿</span> Analysis Workbench <span class="badge">LOCAL PROTOTYPE</span></div>
+    <nav aria-label="Workspace"><a href="/archive" aria-current="page">Archive</a><a href="/">Spectrum review</a></nav>
+  </header>
+  <main class="archive-main">
+    <div class="title-row">
+      <div><p class="eyebrow">MATERIALS & RECORDS</p><h1>Experimental records</h1></div>
+      <button id="new-record" class="primary">New record</button>
+    </div>
+    <div id="archive-notice" role="status" aria-live="polite">Loading saved records…</div>
+    <section class="panel archive-search" aria-label="Find records">
+      <label class="search-label">Search records<input id="search" type="search" placeholder="Title, notes, tags, or filename"></label>
+      <div class="archive-filter-row">
+        <label>Category<select id="filter-category"><option value="">All categories</option></select></label>
+        <label>File kind<select id="filter-kind"><option value="">All files</option><option value="image">Images</option><option value="table">Tables</option><option value="document">Documents</option><option value="text">Text</option><option value="other">Other files</option></select></label>
+        <label>From date<input id="filter-from" type="date"></label>
+        <label>To date<input id="filter-to" type="date"></label>
+        <label>Sort records<select id="sort"><option value="updated">Recently saved</option><option value="date-newest">Experiment date · newest</option><option value="date-oldest">Experiment date · oldest</option><option value="title">Title</option></select></label>
+      </div>
+      <div class="filter-footer"><label class="check"><input id="filter-unknown" type="checkbox">Unknown experiment dates only</label><button id="clear-filters">Clear filters</button><span id="record-count" class="muted"></span></div>
+    </section>
+    <div class="archive-layout">
+      <section class="record-column" aria-label="Matching records"><div id="catalog"></div></section>
+      <section class="panel record-detail" aria-label="Selected record">
+        <div id="detail-empty"><h2>Keep the experiment together</h2><p>Select a record to inspect its materials, or create a record and add files.</p></div>
+        <div id="detail-content" hidden>
+          <div class="section-heading"><h2 id="detail-heading">New record</h2><span id="record-state" class="badge">Not saved</span></div>
+          <form id="metadata-form">
+            <label>Record title<input id="title" required maxlength="500" placeholder="e.g. Sample A · absorption measurement"></label>
+            <div class="fields record-fields">
+              <label>Experiment date<input id="date" type="date"></label>
+              <label>Record category<input id="category" maxlength="100" list="category-suggestions" placeholder="e.g. Raman, microscopy"><datalist id="category-suggestions"></datalist></label>
+            </div>
+            <label>Tags<input id="tags" placeholder="Separate tags with commas" maxlength="1200"></label>
+            <label>Record notes<textarea id="notes" rows="3" maxlength="20000" placeholder="Sample context, observations, source, or next steps"></textarea></label>
+            <div class="detail-actions"><button id="save-metadata" type="submit" class="primary">Save record</button><a id="open-review" hidden>Open spectrum review</a><a id="export-record" hidden>Export record ZIP</a></div>
+          </form>
+          <p id="timestamps" class="muted"></p>
+          <div class="section-heading materials-heading"><h2>Original materials</h2><label class="add-files">Add files<input id="files" type="file" multiple></label></div>
+          <p id="upload-help" class="muted">Save the record to add files.</p>
+          <div id="materials"></div>
+          <section id="preview" class="file-preview" hidden aria-label="File preview">
+            <div class="section-heading"><h2 id="preview-title">Preview</h2><button id="close-preview">Close preview</button></div>
+            <div id="preview-content"></div>
+          </section>
+        </div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

@@ -216,3 +216,12 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local agent instructions (not tracked)
+/AGENTS.md
+/.codex/
+/.agents/
+/.claude/
+
+# Downloaded research data and generated evaluation artifacts
+/data/
