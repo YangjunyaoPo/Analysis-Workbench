@@ -39,6 +39,11 @@ python -m unittest discover -s tests -p "test_*.py"
 node --test tests/core.test.mjs tests/diagnosis.test.mjs tests/archive-filters.test.mjs
 ```
 
+[GitHub Actions](https://github.com/YangjunyaoPo/Analysis-Workbench/actions/workflows/tests.yml)
+runs these checks on Linux and Windows for pushes and pull requests, using Python
+3.10 and Node.js 22. Browser module syntax is checked separately. CI does not run
+interactive browser tests or download the research datasets.
+
 ## Design and current limits
 
 - [Project direction and proposed workflow](docs/project-brief.md)
