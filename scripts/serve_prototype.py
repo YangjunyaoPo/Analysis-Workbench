@@ -128,6 +128,8 @@ class Handler(BaseHTTPRequestHandler):
                 with LOCK:
                     for file in RECORDS.glob("*.json"):
                         r = json.loads(file.read_text(encoding="utf-8"))
+                        if r.get("deletedAt"):
+                            continue
                         records.append({k: r.get(k) for k in ("id", "title", "date", "category", "savedAt", "revision")})
                 return self.reply(200, sorted(records, key=lambda r: r["savedAt"], reverse=True))
             if path.startswith("/api/records/") and ID.fullmatch(path.rsplit("/", 1)[-1]):
@@ -145,7 +147,7 @@ class Handler(BaseHTTPRequestHandler):
         url = urlsplit(self.path)
         parts = url.path.strip("/").split("/")
         if len(parts) == 2:
-            return self.reply(200, store.catalog())
+            return self.reply(200, store.catalog(trashed=parse_qs(url.query).get("view") == ["trash"]))
         record = store.read(parts[2])
         if len(parts) == 3:
             return self.reply(200, store.detail(record))
@@ -196,13 +198,22 @@ class Handler(BaseHTTPRequestHandler):
                 with LOCK:
                     result = store.add_file(parts[2], revision, name, body)
                 return self.reply(200, result)
-            if len(parts) not in {2, 3}:
+            lifecycle = len(parts) in {4, 6} and parts[-1] in {"trash", "restore"}
+            if len(parts) == 6 and parts[3] != "files":
+                lifecycle = False
+            if len(parts) not in {2, 3} and not lifecycle:
                 return self.reply(404, {"error": "Not found."})
             if not 0 < size <= 100000 or self.headers.get("Content-Type") != "application/json":
                 return self.reply(400, {"error": "Expected a bounded JSON metadata request."})
             payload = json.loads(self.rfile.read(size))
             with LOCK:
-                result = store.save_metadata(payload, parts[2] if len(parts) == 3 else None)
+                if lifecycle:
+                    if not isinstance(payload, dict):
+                        raise ValueError("Expected a revision object.")
+                    result = store.set_trashed(parts[2], payload.get("revision"), parts[-1] == "trash",
+                                              parts[4] if len(parts) == 6 else None)
+                else:
+                    result = store.save_metadata(payload, parts[2] if len(parts) == 3 else None)
             return self.reply(200, result)
         except ConflictError as error:
             self.reply(409, {"error": str(error)})
@@ -239,7 +250,8 @@ class Handler(BaseHTTPRequestHandler):
                 # Archive metadata belongs to the shared record, even when this
                 # older analysis UI does not include it in its save payload.
                 if old:
-                    for key in ("attachments", "tags", "createdAt"):
+                    ArchiveStore.require_active(old)
+                    for key in ("attachments", "tags", "createdAt", "deletedAt", "importedFrom"):
                         if key in old:
                             record[key] = old[key]
                     ArchiveStore(RECORDS).retain_replaced_inputs(old, record)
@@ -249,6 +261,8 @@ class Handler(BaseHTTPRequestHandler):
                 temp.write_text(json.dumps(record, ensure_ascii=False, allow_nan=False), encoding="utf-8")
                 temp.replace(target)
             self.reply(200, {k: record[k] for k in ("id", "revision", "savedAt")})
+        except ConflictError as error:
+            self.reply(409, {"error": str(error)})
         except (ValueError, TypeError, OSError) as error:
             self.reply(400, {"error": str(error)})
 
@@ -256,7 +270,9 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--records-dir", type=Path, default=RECORDS, help="Directory for records and original files")
     args = parser.parse_args()
+    RECORDS = args.records_dir.resolve()
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     print(f"Analysis Workbench: http://127.0.0.1:{server.server_port}", flush=True)
     try:

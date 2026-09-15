@@ -50,8 +50,14 @@ TIFF, SVG, XLSX, PDF and other formats are retained for download without an embe
 preview. Files are classified by extension; this is not content recognition.
 
 Uploads are bounded to **25 MiB per file, 100 files and 100 MiB per record**.
-There is no attachment deletion, archive-package import, background sync, or cloud
-storage in this slice. ZIP export includes a full `record.json`, original files,
+Records and attachments can be moved to trash and restored. Trash does not free
+disk space and is never automatically cleared. The [retention decision](decisions/001-record-lifecycle.md)
+records the maintainer's choice and its tradeoff. Analysis inputs must be detached
+or replaced before the corresponding file can be trashed. Trashed records are
+read-only until restored, and both interfaces reject saves to them.
+
+There is no permanent deletion, archive-package import, background sync, or cloud
+storage in this slice. ZIP export includes a full `record.json`, retained files (including trash),
 and `manifest.json` with paths, lengths and SHA-256 hashes. It is an inspectable
 portable export; restoring it through the interface is not implemented.
 
@@ -89,7 +95,8 @@ behavior. Pagination, indexed search and a database should follow measured needs
 
 ## Verification and pending review
 
-The development agent ran 12 Python tests and 10 JavaScript tests on 2026-09-11.
+The development agent ran 16 Python tests on 2026-09-15. The 10 JavaScript tests
+last passed earlier that day; the archive browser module also passes a syntax check.
 The archive additions cover original bytes, duplicates, old records, preservation of
 analysis, injected write failure, corrupt blobs, export manifests, limits, HTTP
 conflicts and origin rejection, date boundaries, unknown dates, and combined search.
@@ -101,6 +108,10 @@ python -m unittest discover -s tests -p "test_*.py"
 node --test tests/core.test.mjs tests/diagnosis.test.mjs tests/archive-filters.test.mjs
 ```
 
-The new archive page still needs an interactive walkthrough. Review should cover
-failed uploads, stale edits, export contents, and retrieval when experiment dates
-are unknown. Automated storage and HTTP checks do not establish usability.
+Agent browser checks on an isolated record directory covered record creation,
+multiple-file upload, file trash/restore, cancellation, record trash/restore, and
+read-only metadata while a record is trashed. User acceptance remains pending.
+
+For an isolated walkthrough, start the server with
+`python scripts/serve_prototype.py --port 8766 --records-dir data/browser-checks`.
+This keeps verification records separate from working experiments.

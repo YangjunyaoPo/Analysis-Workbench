@@ -33,13 +33,18 @@ async function request(path, options = {}) {
 }
 
 function updateControls() {
-  for (const control of $('metadata-form').querySelectorAll('input, textarea, button')) control.disabled = state.busy;
+  const trashed = !!state.current?.deletedAt;
+  for (const control of $('metadata-form').querySelectorAll('input, textarea, button')) control.disabled = state.busy || trashed;
   $('new-record').disabled = state.busy;
-  $('files').disabled = state.busy || !state.current?.id || state.dirty;
-  $('upload-help').textContent = !state.current?.id ? 'Save the record to add files.' : state.dirty
+  $('record-view').disabled = state.busy;
+  $('refresh-records').disabled = state.busy;
+  for (const id of ['trash-record', 'restore-record']) $(id).disabled = state.busy || state.dirty;
+  $('files').disabled = state.busy || !state.current?.id || state.dirty || trashed;
+  $('upload-help').textContent = trashed ? 'This record is in trash. Restore it to edit metadata or manage files. Original materials remain available.' : !state.current?.id ? 'Save the record to add files.' : state.dirty
     ? 'Save metadata changes before adding files.'
     : 'Files are saved immediately. Up to 25 MiB per file, 100 files and 100 MiB per record. Unsupported formats remain available for download.';
-  $('record-state').textContent = state.dirty ? 'Unsaved changes' : state.current?.id ? 'Saved locally' : 'Not saved';
+  $('record-state').textContent = trashed ? 'In trash' : state.dirty ? 'Unsaved changes' : state.current?.id ? 'Saved locally' : 'Not saved';
+  for (const control of $('materials').querySelectorAll('[data-mutation]')) control.disabled = state.busy || state.dirty || trashed || control.dataset.protected === 'true';
 }
 
 async function run(operation) {
@@ -51,8 +56,19 @@ async function run(operation) {
   finally { state.busy = false; updateControls(); }
 }
 
-function canReplace() {
-  return !state.dirty || window.confirm('Discard the unsaved metadata changes?');
+function confirmChange(message, label) {
+  $('confirmation-message').textContent = message;
+  $('confirm-action').textContent = label;
+  const dialog = $('confirmation');
+  dialog.returnValue = 'cancel';
+  return new Promise(resolve => {
+    dialog.addEventListener('close', () => resolve(dialog.returnValue === 'confirm'), {once: true});
+    dialog.showModal();
+  });
+}
+
+async function canReplace() {
+  return !state.dirty || await confirmChange('Discard the unsaved metadata changes?', 'Discard changes');
 }
 
 function filters() {
@@ -99,7 +115,7 @@ function updateCategories() {
 }
 
 async function refreshCatalog() {
-  const catalog = await request('/api/archive');
+  const catalog = await request('/api/archive?view=' + $('record-view').value);
   state.records = catalog.records;
   updateCategories(); renderCatalog();
   return catalog.errors;
@@ -146,11 +162,14 @@ async function preview(file) {
 
 function renderMaterials() {
   $('materials').replaceChildren();
-  for (const file of state.current?.materials || []) {
+  const materials = [...(state.current?.materials || []), ...(state.current?.trashedMaterials || [])];
+  for (const file of materials) {
     const row = element('article', undefined, 'material');
     const details = element('div');
     details.append(element('h3', file.name));
     details.append(element('p', `${file.kind} · ${formatBytes(file.size)} · Added: ${timestamp(file.addedAt)}`));
+    if (file.deletedAt) details.append(element('p', `In trash since ${timestamp(file.deletedAt)}. Original bytes are retained.`));
+    if (file.usedBy) details.append(element('p', 'Used by the saved analysis. Detach or replace this input before moving it to trash.'));
     if (file.originalBytesAvailable === false) details.append(element('p', 'Earlier review retained decoded CSV text only; original encoding bytes were not recorded.'));
     const integrity = element('details');
     integrity.append(element('summary', 'SHA-256 / file identity'), element('code', file.sha256));
@@ -161,9 +180,13 @@ function renderMaterials() {
     view.addEventListener('click', () => preview(file));
     const download = element('a', 'Download'); download.href = fileURL(file);
     download.setAttribute('aria-label', `Download ${file.name}`);
-    actions.append(view, download); row.append(details, actions); $('materials').append(row);
+    const trash = element('button', file.deletedAt ? 'Restore file' : 'Move file to trash');
+    trash.dataset.mutation = 'true'; trash.dataset.protected = String(!!file.usedBy);
+    trash.setAttribute('aria-label', `${file.deletedAt ? 'Restore' : 'Trash'} ${file.name}`);
+    trash.addEventListener('click', () => run(() => changeTrash(!file.deletedAt, file)));
+    actions.append(view, download, trash); row.append(details, actions); $('materials').append(row);
   }
-  if (!state.current?.materials.length) $('materials').append(element('p', 'No files attached yet.', 'muted'));
+  if (!materials.length) $('materials').append(element('p', 'No files attached yet.', 'muted'));
 }
 
 function showRecord(record) {
@@ -175,18 +198,32 @@ function showRecord(record) {
   $('timestamps').textContent = record.id ? `Created: ${timestamp(record.createdAt)} · Last saved: ${timestamp(record.savedAt)}. Experiment date is recorded separately.` : '';
   $('export-record').hidden = !record.id;
   $('export-record').href = record.id ? `/api/archive/${record.id}/export` : '#';
-  $('open-review').hidden = !record.hasReviewInputs;
+  $('open-review').hidden = !record.hasReviewInputs || !!record.deletedAt;
   $('open-review').href = record.id ? `/?record=${record.id}` : '/';
+  $('trash-record').hidden = !record.id || !!record.deletedAt;
+  $('restore-record').hidden = !record.id || !record.deletedAt;
   closePreview(); renderMaterials(); updateControls(); renderCatalog();
 }
 
 async function openRecord(identity) {
-  if (!canReplace()) return;
+  if (!await canReplace()) return;
   const record = await request(`/api/archive/${identity}`);
+  const view = record.deletedAt ? 'trash' : 'active';
+  if ($('record-view').value !== view) { $('record-view').value = view; await refreshCatalog(); }
   showRecord(record);
   history.replaceState(null, '', `/archive#${identity}`);
   notice('Record opened. Original materials and saved analysis are retained.');
   if (window.matchMedia('(max-width: 720px)').matches) $('detail-content').scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+
+async function changeTrash(trashed, file = null) {
+  if (state.dirty) throw Error('Save metadata changes before managing trash.');
+  if (trashed && !await confirmChange(`Move ${file ? file.name : 'this record and its materials'} to trash? You can restore it later. Files will not be permanently deleted.`, 'Move to trash')) return;
+  const path = `/api/archive/${state.current.id}` + (file ? `/files/${file.id}` : '') + (trashed ? '/trash' : '/restore');
+  const record = await request(path, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-Workbench-Request': '1'}, body: JSON.stringify({revision: state.current.revision})});
+  if (!file) $('record-view').value = trashed ? 'trash' : 'active';
+  showRecord(record); await refreshCatalog();
+  notice(trashed ? 'Moved to trash. Original bytes are retained and can be restored.' : 'Restored. Original materials and analysis state are retained.');
 }
 
 function draft() {
@@ -198,6 +235,7 @@ function draft() {
 async function saveMetadata() {
   const path = '/api/archive' + (state.current?.id ? '/' + state.current.id : '');
   const record = await request(path, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-Workbench-Request': '1'}, body: JSON.stringify(draft())});
+  $('record-view').value = 'active';
   showRecord(record);
   history.replaceState(null, '', `/archive#${record.id}`);
   const errors = await refreshCatalog();
@@ -206,12 +244,28 @@ async function saveMetadata() {
 
 $('metadata-form').addEventListener('submit', event => {event.preventDefault(); run(saveMetadata);});
 $('metadata-form').addEventListener('input', () => {state.dirty = true; updateControls();});
-$('new-record').addEventListener('click', () => run(() => {
-  if (!canReplace()) return;
+$('new-record').addEventListener('click', () => run(async () => {
+  if (!await canReplace()) return;
+  if ($('record-view').value !== 'active') { $('record-view').value = 'active'; await refreshCatalog(); }
   showRecord({title: '', date: '', category: '', notes: '', tags: [], materials: []});
   history.replaceState(null, '', '/archive');
-  $('title').focus();
   notice('Name the record and save it, then add original materials. An unknown experiment date can be left blank.');
+}).then(() => { if (state.current && !state.current.id) $('title').focus(); }));
+$('trash-record').addEventListener('click', () => run(() => changeTrash(true)));
+$('restore-record').addEventListener('click', () => run(() => changeTrash(false)));
+$('record-view').addEventListener('change', () => run(async () => {
+  const prior = state.current?.deletedAt ? 'trash' : 'active';
+  if (!await canReplace()) { $('record-view').value = prior; return; }
+  state.current = null; state.dirty = false;
+  $('detail-content').hidden = true; $('detail-empty').hidden = false;
+  history.replaceState(null, '', '/archive'); closePreview(); await refreshCatalog();
+  notice($('record-view').value === 'trash' ? 'Trashed records can be restored. Nothing is automatically deleted.' : 'Showing active records.');
+}));
+$('refresh-records').addEventListener('click', () => run(async () => {
+  if (state.dirty) throw Error('Save or discard metadata changes before refreshing.');
+  const errors = await refreshCatalog();
+  if (state.current?.id) await openRecord(state.current.id);
+  notice(errors.length ? `${errors.length} record(s) could not be read.` : 'Records refreshed.', !!errors.length);
 }));
 $('files').addEventListener('change', () => run(async () => {
   const files = [...$('files').files];

@@ -128,6 +128,25 @@ class PersistenceTests(unittest.TestCase):
             self.assertIn(content_type, headers["Content-Type"])
             self.assertTrue(body)
 
+    def test_trash_routes_preserve_bytes_and_block_stale_analysis_saves(self):
+        _, record = self.request("/api/archive", {"title": "Trash test"})
+        identity = record["id"]
+        path = "/api/archive/" + identity
+        _, _, saved = self.binary_request(path + "/files?name=notes.txt", b"keep")
+        file_id = json.loads(saved)["record"]["materials"][0]["id"]
+        self.assertEqual(self.request(path + "/files/" + file_id + "/trash", {"revision": 2})[0], 200)
+        self.assertEqual(self.binary_request(path + "/files/" + file_id)[2], b"keep")
+        self.assertEqual(self.request(path + "/files/" + file_id + "/restore", {"revision": 3})[0], 200)
+        self.assertEqual(self.request(path + "/trash", {"revision": 4})[0], 200)
+        self.assertEqual(self.request("/api/archive")[1]["records"], [])
+        self.assertEqual(self.request("/api/records")[1], [])
+        self.assertEqual(self.request("/api/archive?view=trash")[1]["records"][0]["id"], identity)
+        _, current = self.request("/api/records/" + identity)
+        self.assertEqual(self.request("/api/records", current)[0], 409)
+        self.assertEqual(self.request(path + "/restore", {"revision": 4})[0], 409)
+        self.assertEqual(self.request(path + "/restore", {"revision": 5})[0], 200)
+        self.assertEqual(self.request("/api/records")[1][0]["id"], identity)
+
 
 if __name__ == "__main__":
     unittest.main()

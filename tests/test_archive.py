@@ -119,6 +119,55 @@ class ArchiveTests(unittest.TestCase):
         self.assertEqual(len(self.store.catalog()["errors"]), 1)
         self.assertEqual(len(self.store.catalog()["records"]), 1)
 
+    def test_record_trash_is_reversible_and_blocks_mutation(self):
+        legacy = self.legacy()
+        identity = legacy["id"]
+        trashed = self.store.set_trashed(identity, 1, True)
+        self.assertTrue(trashed["deletedAt"])
+        self.assertEqual(self.store.catalog()["records"], [])
+        self.assertEqual(self.store.catalog(trashed=True)["records"][0]["id"], identity)
+        with self.assertRaises(ConflictError):
+            self.store.save_metadata({"title": "Edit", "revision": 2}, identity)
+        with self.assertRaises(ConflictError):
+            self.store.add_file(identity, 2, "file.txt", b"new")
+        with self.assertRaises(ConflictError):
+            self.store.set_trashed(identity, 1, False)
+        restored = self.store.set_trashed(identity, 2, False)
+        self.assertFalse(restored["deletedAt"])
+        self.assertEqual(self.store.read(identity)["result"], legacy["result"])
+        self.assertEqual(self.store.file_content(self.store.read(identity), "legacy-csv")[1], b"x,y\n1,2")
+
+    def test_file_trash_keeps_shared_bytes_export_and_limits(self):
+        identity = self.record["id"]
+        saved = self.store.add_file(identity, 1, "one.txt", b"shared")["record"]
+        attachment = saved["materials"][0]
+        other = self.store.save_metadata({"title": "Other"})
+        self.store.add_file(other["id"], 1, "two.txt", b"shared")
+        trashed = self.store.set_trashed(identity, 2, True, attachment["id"])
+        self.assertEqual(trashed["materials"], [])
+        self.assertEqual(len(trashed["trashedMaterials"]), 1)
+        self.assertEqual(len(list(self.store.files.glob("*.bin"))), 1)
+        self.assertEqual(self.store.file_content(self.store.read(identity), attachment["id"])[1], b"shared")
+        with self.assertRaises(ConflictError):
+            self.store.add_file(identity, 3, "one.txt", b"shared")
+        with patch("scripts.archive_store.MAX_RECORD_FILES", 1):
+            with self.assertRaises(ValueError):
+                self.store.add_file(identity, 3, "new.txt", b"new")
+        output = io.BytesIO()
+        self.store.export(identity, output)
+        with zipfile.ZipFile(output) as archive:
+            files = json.loads(archive.read("manifest.json"))["files"]
+            self.assertTrue(files[0]["deletedAt"])
+            self.assertEqual(archive.read(files[0]["path"]), b"shared")
+        restored = self.store.set_trashed(identity, 3, False, attachment["id"])
+        self.assertEqual(restored["materials"][0]["sha256"], attachment["sha256"])
+
+    def test_active_analysis_inputs_cannot_be_trashed(self):
+        legacy = self.legacy()
+        with self.assertRaisesRegex(ValueError, "analysis input"):
+            self.store.set_trashed(legacy["id"], 1, True, "legacy-csv")
+        self.assertEqual(self.store.read(legacy["id"]), legacy)
+
 
 if __name__ == "__main__":
     unittest.main()

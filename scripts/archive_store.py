@@ -72,7 +72,7 @@ class ArchiveStore:
         if not isinstance(identity, str) or not IDENTIFIER.fullmatch(identity):
             raise ValueError("Invalid record identifier.")
         record = json.loads((self.folder / (identity + ".json")).read_text(encoding="utf-8"))
-        if record.get("schema") != 1:
+        if not isinstance(record, dict) or record.get("schema") != 1 or record.get("id") != identity:
             raise ValueError("Unsupported record format.")
         return record
 
@@ -88,11 +88,36 @@ class ArchiveStore:
         if not isinstance(expected, int) or isinstance(expected, bool) or expected != record.get("revision", 0):
             raise ConflictError("This record changed in another window. Reopen it before editing.")
 
+    @staticmethod
+    def require_active(record):
+        if record.get("deletedAt"):
+            raise ConflictError("This record is in trash. Restore it before editing.")
+
+    def set_trashed(self, identity, expected_revision, trashed, file_id=None):
+        record = self.read(identity)
+        self.check_revision(record, expected_revision)
+        target = record
+        if file_id is not None:
+            self.require_active(record)
+            item = next((m for m in self.materials(record, include_deleted=True) if m["id"] == file_id), None)
+            if item is None:
+                raise FileNotFoundError("Attachment not found.")
+            if item.get("usedBy"):
+                raise ValueError("This file is an analysis input. Detach or replace it before moving it to trash.")
+            target = next(a for a in record["attachments"] if a["id"] == file_id)
+        if bool(target.get("deletedAt")) == trashed:
+            return self.detail(record)
+        target["deletedAt"] = now() if trashed else None
+        record.update(revision=record["revision"] + 1, savedAt=now())
+        self.write(record)
+        return self.detail(record)
+
     def save_metadata(self, payload, identity=None):
         values = metadata(payload)
         if identity:
             record = self.read(identity)
             self.check_revision(record, payload.get("revision"))
+            self.require_active(record)
         else:
             record = {"schema": 1, "id": uuid.uuid4().hex, "revision": 0, "createdAt": now(),
                       "assets": {}, "attachments": [], "calibration": {}, "sampleCalibration": None,
@@ -119,8 +144,8 @@ class ArchiveStore:
             return decode(assets["imageData"])
         raise ValueError("Unknown legacy attachment.")
 
-    def materials(self, record):
-        materials = [dict(item) for item in record.get("attachments", [])]
+    def materials(self, record, include_deleted=False):
+        materials = [dict(item) for item in record.get("attachments", []) if include_deleted or not item.get("deletedAt")]
         assets = record.get("assets", {})
         for kind, name_key, content_key in (("csv", "csvName", "csvText"), ("image", "imageName", "imageData")):
             if not assets.get(content_key):
@@ -128,25 +153,34 @@ class ArchiveStore:
             identity = "legacy-" + kind
             body = self.legacy_bytes(record, identity)
             name = assets.get(name_key) or ("reference.csv" if kind == "csv" else "image.png")
+            digest = hashlib.sha256(body).hexdigest()
+            linked = next((m for m in materials if m["id"] == assets.get(kind + "AttachmentId")
+                           and m["sha256"] == digest and not m.get("deletedAt")), None)
+            if linked:
+                linked["usedBy"] = kind
+                continue
             materials.insert(0, {"id": identity, "name": name, "size": len(body),
-                                 "sha256": hashlib.sha256(body).hexdigest(), "kind": file_kind(name),
+                                 "sha256": digest, "kind": file_kind(name), "usedBy": kind,
                                  "mediaType": mimetypes.guess_type(name)[0] or "application/octet-stream",
                                  "addedAt": None, "legacy": True,
                                  "originalBytesAvailable": kind != "csv" or bool(assets.get("csvData"))})
         return materials
 
     def detail(self, record):
-        result = {key: record.get(key) for key in ("id", "title", "date", "category", "notes", "revision", "savedAt", "createdAt")}
+        result = {key: record.get(key) for key in ("id", "title", "date", "category", "notes", "revision", "savedAt", "createdAt", "deletedAt")}
         result.update(tags=record.get("tags", []), materials=self.materials(record),
+                      trashedMaterials=[m for m in self.materials(record, include_deleted=True) if m.get("deletedAt")],
                       hasAnalysis=bool(record.get("extraction") or record.get("result")),
                       hasReviewInputs=bool(record.get("assets", {}).get("csvText") or record.get("assets", {}).get("imageData")))
         return result
 
-    def catalog(self):
+    def catalog(self, trashed=False):
         records, errors = [], []
         for path in self.folder.glob("*.json"):
             try:
-                records.append(self.detail(self.read(path.stem)))
+                record = self.read(path.stem)
+                if bool(record.get("deletedAt")) == trashed:
+                    records.append(self.detail(record))
             except (OSError, ValueError, KeyError, TypeError) as error:
                 errors.append({"record": path.stem, "error": str(error)})
         records.sort(key=lambda r: r.get("savedAt") or "", reverse=True)
@@ -159,9 +193,13 @@ class ArchiveStore:
             raise ValueError("Each file must be at most 25 MiB.")
         record = self.read(identity)
         self.check_revision(record, expected_revision)
-        existing = self.materials(record)
+        self.require_active(record)
+        existing = self.materials(record, include_deleted=True)
         digest = hashlib.sha256(body).hexdigest()
-        if any(item["sha256"] == digest and item["name"] == name for item in existing):
+        duplicate = next((item for item in existing if item["sha256"] == digest and item["name"] == name), None)
+        if duplicate and duplicate.get("deletedAt"):
+            raise ConflictError("This identical file is in trash. Restore it from the record's trashed files.")
+        if duplicate:
             return {"record": self.detail(record), "duplicate": True}
         if len(existing) >= MAX_RECORD_FILES or sum(item["size"] for item in existing) + len(body) > MAX_RECORD_BYTES:
             raise ValueError("A record can hold at most 100 files and 100 MiB of attachments.")
@@ -189,7 +227,7 @@ class ArchiveStore:
 
     def retain_replaced_inputs(self, old, incoming):
         """An explicit analysis save may replace inputs, but must retain old files."""
-        materials = self.materials(incoming)
+        materials = self.materials(incoming, include_deleted=True)
         for item in self.materials(old):
             if not item.get("legacy") or any(m["name"] == item["name"] and m["sha256"] == item["sha256"] for m in materials):
                 continue
@@ -200,7 +238,7 @@ class ArchiveStore:
             materials.append(stored)
 
     def file_content(self, record, file_id):
-        item = next((m for m in self.materials(record) if m["id"] == file_id), None)
+        item = next((m for m in self.materials(record, include_deleted=True) if m["id"] == file_id), None)
         if item is None:
             raise FileNotFoundError("Attachment not found.")
         if item.get("legacy"):
@@ -215,12 +253,12 @@ class ArchiveStore:
 
     def export(self, identity, destination):
         record = self.read(identity)
-        detail = self.detail(record)
+        materials = self.materials(record, include_deleted=True)
         manifest = []
         # Preserve a complete snapshot for recovery, including old analysis inputs.
         with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             archive.writestr("record.json", json.dumps(record, ensure_ascii=False, allow_nan=False, indent=2))
-            for index, item in enumerate(detail["materials"], start=1):
+            for index, item in enumerate(materials, start=1):
                 _, body = self.file_content(record, item["id"])
                 safe_name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", item["name"]).strip(" .") or "attachment"
                 path = f"files/{index:03d}_{safe_name}"

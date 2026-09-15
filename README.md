@@ -5,7 +5,8 @@ The current focus is archiving materials and finding them again by date, categor
 tags, or filename.
 
 A local archive supports multiple original files per record, editable metadata,
-search and date/category filters, previews, original downloads, and record ZIP exports.
+search and date/category filters, previews, original downloads, record ZIP exports,
+and recoverable trash for records and attachments.
 The spectrum-review prototype supports CSV/image import, manual calibration,
 colored-curve extraction and correction, interval calculations, and saved reviews.
 The controlled reference passes the provisional extraction target; the three

@@ -20,6 +20,7 @@
     </div>
     <div id="archive-notice" role="status" aria-live="polite">Loading saved records…</div>
     <section class="panel archive-search" aria-label="Find records">
+      <div class="archive-view"><label>Record view<select id="record-view"><option value="active">Active records</option><option value="trash">Trash</option></select></label><button id="refresh-records">Refresh records</button></div>
       <label class="search-label">Search records<input id="search" type="search" placeholder="Title, notes, tags, or filename"></label>
       <div class="archive-filter-row">
         <label>Category<select id="filter-category"><option value="">All categories</option></select></label>
@@ -47,6 +48,7 @@
             <div class="detail-actions"><button id="save-metadata" type="submit" class="primary">Save record</button><a id="open-review" hidden>Open spectrum review</a><a id="export-record" hidden>Export record ZIP</a></div>
           </form>
           <p id="timestamps" class="muted"></p>
+          <div class="detail-actions"><button id="trash-record" hidden>Move record to trash</button><button id="restore-record" hidden>Restore record</button></div>
           <div class="section-heading materials-heading"><h2>Original materials</h2><label class="add-files">Add files<input id="files" type="file" multiple></label></div>
           <p id="upload-help" class="muted">Save the record to add files.</p>
           <div id="materials"></div>
@@ -58,5 +60,10 @@
       </section>
     </div>
   </main>
+  <dialog id="confirmation" aria-labelledby="confirmation-title" aria-describedby="confirmation-message">
+    <h2 id="confirmation-title">Confirm change</h2>
+    <p id="confirmation-message"></p>
+    <form method="dialog" class="detail-actions"><button value="cancel" autofocus>Cancel</button><button id="confirm-action" value="confirm" class="primary">Confirm</button></form>
+  </dialog>
 </body>
 </html>
