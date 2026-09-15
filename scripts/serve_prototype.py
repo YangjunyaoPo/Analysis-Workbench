@@ -19,8 +19,10 @@ import uuid
 
 if __package__:
     from .archive_store import ArchiveStore, ConflictError, MAX_FILE
+    from .archive_transfer import import_package, MAX_PACKAGE
 else:
     from archive_store import ArchiveStore, ConflictError, MAX_FILE
+    from archive_transfer import import_package, MAX_PACKAGE
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "prototype"
@@ -187,6 +189,21 @@ class Handler(BaseHTTPRequestHandler):
         parts = url.path.strip("/").split("/")
         try:
             size = int(self.headers.get("Content-Length", "-1"))
+            if url.path == "/api/archive/import":
+                if not 0 < size <= MAX_PACKAGE:
+                    return self.reply(413, {"error": "Archive packages must be at most 150 MiB."})
+                with tempfile.TemporaryFile() as package:
+                    remaining = size
+                    while remaining:
+                        chunk = self.rfile.read(min(remaining, 65536))
+                        if not chunk:
+                            raise ValueError("Incomplete archive upload.")
+                        package.write(chunk)
+                        remaining -= len(chunk)
+                    package.seek(0)
+                    with LOCK:
+                        result = import_package(store, package)
+                return self.reply(200, result)
             if len(parts) == 4 and parts[3] == "files":
                 if not 0 <= size <= MAX_FILE:
                     return self.reply(413, {"error": "Each file must be at most 25 MiB."})

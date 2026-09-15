@@ -36,6 +36,7 @@ function updateControls() {
   const trashed = !!state.current?.deletedAt;
   for (const control of $('metadata-form').querySelectorAll('input, textarea, button')) control.disabled = state.busy || trashed;
   $('new-record').disabled = state.busy;
+  $('import-package').disabled = state.busy;
   $('record-view').disabled = state.busy;
   $('refresh-records').disabled = state.busy;
   for (const id of ['trash-record', 'restore-record']) $(id).disabled = state.busy || state.dirty;
@@ -244,6 +245,19 @@ async function saveMetadata() {
 
 $('metadata-form').addEventListener('submit', event => {event.preventDefault(); run(saveMetadata);});
 $('metadata-form').addEventListener('input', () => {state.dirty = true; updateControls();});
+$('import-package').addEventListener('change', () => run(async () => {
+  const file = $('import-package').files[0];
+  try {
+    if (!file || !await canReplace()) return;
+    if (file.size > 150 * 1024 ** 2) throw Error('Archive packages must be at most 150 MiB.');
+    notice('Checking package contents and original-file hashes…');
+    const record = await request('/api/archive/import', {method: 'POST', headers: {'Content-Type': 'application/zip', 'X-Workbench-Request': '1'}, body: file});
+    $('record-view').value = 'active'; showRecord(record);
+    history.replaceState(null, '', `/archive#${record.id}`);
+    await refreshCatalog();
+    notice('Imported as a new record. Existing records were unchanged. Saved analysis was preserved, not recalculated.');
+  } finally { $('import-package').value = ''; }
+}));
 $('new-record').addEventListener('click', () => run(async () => {
   if (!await canReplace()) return;
   if ($('record-view').value !== 'active') { $('record-view').value = 'active'; await refreshCatalog(); }

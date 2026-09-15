@@ -56,10 +56,21 @@ records the maintainer's choice and its tradeoff. Analysis inputs must be detach
 or replaced before the corresponding file can be trashed. Trashed records are
 read-only until restored, and both interfaces reject saves to them.
 
-There is no permanent deletion, archive-package import, background sync, or cloud
-storage in this slice. ZIP export includes a full `record.json`, retained files (including trash),
+There is no permanent deletion, background sync, or cloud storage in this slice.
+ZIP export includes a full `record.json`, retained files (including trash),
 and `manifest.json` with paths, lengths and SHA-256 hashes. It is an inspectable
-portable export; restoring it through the interface is not implemented.
+portable export. **Import record ZIP** validates the package and creates a new
+record; it never overwrites an existing record, even on repeated import. Source
+identity and timestamps are retained in `importedFrom`. A copied record is active;
+individual attachment trash states are preserved. Saved analysis is retained,
+not recalculated or scientifically certified by import.
+
+Import accepts workbench ZIPs up to 150 MiB, with at most 100 original files and
+100 MiB of original bytes, a 30 MiB record snapshot and a 1 MiB manifest. Entry
+paths, identities, sizes and hashes must agree. Duplicate entries, unlisted files,
+encrypted entries, symlinks and unsupported compression are rejected. ZIP member
+names are never used as filesystem extraction paths. Validation completes before
+writing content-addressed files and atomically publishing the new record.
 
 ## Implementation and tradeoffs
 
@@ -69,6 +80,7 @@ portable export; restoring it through the interface is not implemented.
 | `prototype/archive.mjs` | Explicit save/upload state, request handling, previews and navigation |
 | `prototype/archive-filters.mjs` | Pure metadata/filename filtering and sorting |
 | `scripts/archive_store.py` | Metadata validation, original-byte storage, compatibility and ZIP export |
+| `scripts/archive_transfer.py` | Bounded ZIP validation and import as an independent record |
 | `scripts/serve_prototype.py` | Local HTTP routes, limits, same-origin checks and write locking |
 
 Metadata and analysis snapshots share `data/prototype-records/<id>.json`. New files
@@ -95,7 +107,7 @@ behavior. Pagination, indexed search and a database should follow measured needs
 
 ## Verification and pending review
 
-The development agent ran 16 Python tests on 2026-09-15. The 10 JavaScript tests
+The development agent ran 25 Python tests on 2026-09-15. The 10 JavaScript tests
 last passed earlier that day; the archive browser module also passes a syntax check.
 The archive additions cover original bytes, duplicates, old records, preservation of
 analysis, injected write failure, corrupt blobs, export manifests, limits, HTTP
@@ -110,7 +122,8 @@ node --test tests/core.test.mjs tests/diagnosis.test.mjs tests/archive-filters.t
 
 Agent browser checks on an isolated record directory covered record creation,
 multiple-file upload, file trash/restore, cancellation, record trash/restore, and
-read-only metadata while a record is trashed. User acceptance remains pending.
+read-only metadata while a record is trashed, and importing an exported record
+as a separate copy. User acceptance remains pending.
 
 For an isolated walkthrough, start the server with
 `python scripts/serve_prototype.py --port 8766 --records-dir data/browser-checks`.

@@ -147,6 +147,21 @@ class PersistenceTests(unittest.TestCase):
         self.assertEqual(self.request(path + "/restore", {"revision": 5})[0], 200)
         self.assertEqual(self.request("/api/records")[1][0]["id"], identity)
 
+    def test_import_roundtrip_through_http_creates_a_copy(self):
+        _, source = self.request("/api/archive", {"title": "Export and import"})
+        path = "/api/archive/" + source["id"]
+        self.binary_request(path + "/files?name=original.bin", b"original bytes")
+        package = self.binary_request(path + "/export")[2]
+        status, _, body = self.binary_request("/api/archive/import", package)
+        self.assertEqual(status, 200)
+        imported = json.loads(body)
+        self.assertNotEqual(imported["id"], source["id"])
+        imported_file = f'/api/archive/{imported["id"]}/files/{imported["materials"][0]["id"]}'
+        self.assertEqual(self.binary_request(imported_file)[2], b"original bytes")
+        self.assertEqual(self.binary_request("/api/archive/import", b"invalid zip")[0], 400)
+        self.assertEqual(self.binary_request("/api/archive/import", package, origin="https://example.org")[0], 403)
+        self.assertEqual(len(self.request("/api/archive")[1]["records"]), 2)
+
 
 if __name__ == "__main__":
     unittest.main()
