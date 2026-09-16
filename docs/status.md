@@ -15,6 +15,8 @@ Updated: 2026-09-15.
   [maintainer's retention decision](decisions/001-record-lifecycle.md).
 - **Transfer:** ZIP export/import with hash and size validation; imported copies
   retain materials and analysis without overwriting existing records.
+- **Analysis inputs:** select or detach archived CSV/images, invalidate dependent
+  results, and return from analysis to the same archive record.
 
 Run instructions are in the [README](../README.md). Storage limits and formats are
 in [Archive workflow](archive-workflow.md); numerical methods and measured errors
@@ -22,15 +24,18 @@ are in [Spectrum review](prototype.md).
 
 ## Verification
 
-The development agent ran **25 Python tests** after adding trash, recovery and ZIP import on
-2026-09-15; all passed. The **10 JavaScript tests** passed earlier that day.
+The development agent ran **31 Python tests and 10 JavaScript tests** after adding
+trash, ZIP import and archived analysis inputs on 2026-09-15; all passed.
 They cover storage integrity and failure cases, HTTP
 persistence, filtering, known-answer calculations, and extraction diagnostics.
 
 Earlier agent browser checks on 2026-09-11 covered the spectrum workflow,
 save/reopen after restart, original-byte downloads, and narrow-screen layout.
 Agent archive checks also covered creation, multiple-file upload, trash/restore,
-cancelled confirmation, read-only trashed records and ZIP import in an isolated directory. The maintainer's
+cancelled confirmation, read-only trashed records and ZIP import in an isolated directory.
+The archive-to-analysis workflow produced the known triangle area of 2, saved it,
+and returned to the same record. Search, file-kind filtering and text preview were
+checked; no horizontal overflow was found at 390 px. The maintainer's
 initial spectrum-page feedback reported no obvious interaction problems;
 numerical acceptance and detailed implementation review remain pending.
 
@@ -44,8 +49,8 @@ loses narrow peaks and rapid variation. This has not yet been fixed.
 
 1. Walk through creating, editing, finding, and exporting multi-file records.
 2. Review original-byte storage, revision conflicts, and backup/export behavior.
-3. Complete selection of archived files as analysis inputs, then
-   review the complete workflow. Permanent deletion is intentionally out of scope.
+3. Review the complete workflow and decide the next requirement from actual usage.
+   Permanent deletion is intentionally out of scope.
 
 Further extraction experiments are paused while archival and retrieval take priority.
 There is no deployment, collaboration support, AI product feature, or independent

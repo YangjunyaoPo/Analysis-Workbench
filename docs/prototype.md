@@ -6,6 +6,8 @@ calibration and correction. It is not a validated spectroscopy application.
 For the current priority—multi-file archival and retrieval—use `/archive` and the
 [Archive workflow](archive-workflow.md). The single-CSV/image limit here applies to
 active analysis inputs, not the number of files an archive record can retain.
+Archived CSVs and supported images can be selected directly in the archive page.
+Changing inputs clears dependent results; the Archive link returns to the same record.
 
 ## Run and try it
 

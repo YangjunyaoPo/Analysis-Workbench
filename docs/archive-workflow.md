@@ -39,9 +39,21 @@ Search matches all entered words across title, category, notes, tags, and filena
 it does not search file contents or run OCR. Combine it with category, file kind,
 inclusive experiment-date ranges, or unknown dates. Sort by experiment date, last
 save time, or title. Select a record to edit metadata, preview, download, or export.
-Archive metadata changes retain analysis results. Existing reviews link to the
-spectrum page; selecting newly archived files as analysis inputs is not integrated
-yet. They can be downloaded and imported into that page explicitly.
+Archive metadata changes retain analysis results. Choose **Use as CSV input** or
+**Use as image input** on a supported attachment, then **Open spectrum review**.
+Changing an input requires confirmation and invalidates dependent results. Changing
+the CSV resets its column/unit selection, comparison and calculated result, while
+retaining image extraction. Changing the image also resets calibration and extracted
+points. Originals remain archived. **Detach from analysis** clears the active input
+and allows that attachment to be trashed. Returning from spectrum review opens the
+same record in the archive.
+
+Analysis inputs retain the existing 12 MiB per-file and 30 MiB review-snapshot limits.
+The CSV must have at least two columns, consistent row widths, and UTF-8 or BOM-marked
+UTF-16 encoding. Image inputs accept PNG, JPEG, WebP and BMP; actual decoding and
+the 16-megapixel extraction limit are checked in the browser. Unsupported or larger
+files remain archival materials. Choosing a new input clears the old pair's source
+label; verify source context and pairing in the record notes before analysis.
 
 PNG, JPEG, WebP, GIF and BMP use browser image previews. CSV, TSV, TXT, Markdown,
 JSON and LOG show at most the first 64 KiB as plain text (UTF-8 or BOM-marked UTF-16).
@@ -81,6 +93,7 @@ writing content-addressed files and atomically publishing the new record.
 | `prototype/archive-filters.mjs` | Pure metadata/filename filtering and sorting |
 | `scripts/archive_store.py` | Metadata validation, original-byte storage, compatibility and ZIP export |
 | `scripts/archive_transfer.py` | Bounded ZIP validation and import as an independent record |
+| `scripts/review_inputs.py` | Select/detach archived analysis inputs and invalidate dependent state |
 | `scripts/serve_prototype.py` | Local HTTP routes, limits, same-origin checks and write locking |
 
 Metadata and analysis snapshots share `data/prototype-records/<id>.json`. New files
@@ -107,8 +120,8 @@ behavior. Pagination, indexed search and a database should follow measured needs
 
 ## Verification and pending review
 
-The development agent ran 25 Python tests on 2026-09-15. The 10 JavaScript tests
-last passed earlier that day; the archive browser module also passes a syntax check.
+The development agent ran 31 Python tests and 10 JavaScript tests on 2026-09-15.
+The browser modules also pass syntax checks.
 The archive additions cover original bytes, duplicates, old records, preservation of
 analysis, injected write failure, corrupt blobs, export manifests, limits, HTTP
 conflicts and origin rejection, date boundaries, unknown dates, and combined search.
@@ -123,7 +136,10 @@ node --test tests/core.test.mjs tests/diagnosis.test.mjs tests/archive-filters.t
 Agent browser checks on an isolated record directory covered record creation,
 multiple-file upload, file trash/restore, cancellation, record trash/restore, and
 read-only metadata while a record is trashed, and importing an exported record
-as a separate copy. User acceptance remains pending.
+as a separate copy. Further checks selected a CSV from the archive, calculated its
+known triangle area of 2, saved the result, and returned to the same record. Combined
+keyword/file-kind filtering and text preview worked. At 390 px, the checked page had
+no horizontal overflow. These agent checks are separate from user acceptance.
 
 For an isolated walkthrough, start the server with
 `python scripts/serve_prototype.py --port 8766 --records-dir data/browser-checks`.

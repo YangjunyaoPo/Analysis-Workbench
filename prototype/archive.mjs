@@ -91,6 +91,7 @@ function renderCatalog() {
     card.append(element('h2', record.title));
     card.append(element('p', `${record.date || 'Unknown experiment date'} · ${record.category || 'Uncategorized'}`));
     card.append(element('p', `${record.materials.length} files · ${formatBytes(record.materials.reduce((sum, m) => sum + m.size, 0))}${record.hasAnalysis ? ' · Analysis saved' : ''}`));
+    card.append(element('p', `${record.importedFrom ? 'Imported copy · ' : ''}Saved: ${timestamp(record.savedAt)}`));
     const names = record.materials.slice(0, 3).map(m => m.name).join(', ');
     if (names) card.append(element('p', names + (record.materials.length > 3 ? ', …' : '')));
     const tags = element('div', undefined, 'tag-row');
@@ -185,7 +186,17 @@ function renderMaterials() {
     trash.dataset.mutation = 'true'; trash.dataset.protected = String(!!file.usedBy);
     trash.setAttribute('aria-label', `${file.deletedAt ? 'Restore' : 'Trash'} ${file.name}`);
     trash.addEventListener('click', () => run(() => changeTrash(!file.deletedAt, file)));
-    actions.append(view, download, trash); row.append(details, actions); $('materials').append(row);
+    actions.append(view, download, trash);
+    const extension = file.name.split('.').at(-1).toLowerCase();
+    const inputKind = extension === 'csv' ? 'csv' : ['png', 'jpg', 'jpeg', 'webp', 'bmp'].includes(extension) ? 'image' : null;
+    if (!file.deletedAt && (inputKind || file.usedBy)) {
+      const use = element('button', file.usedBy ? 'Detach from analysis' : `Use as ${inputKind === 'csv' ? 'CSV' : 'image'} input`);
+      use.dataset.mutation = 'true';
+      use.setAttribute('aria-label', `${file.usedBy ? 'Detach' : 'Analyze'} ${file.name}`);
+      use.addEventListener('click', () => run(() => selectInput(file.usedBy || inputKind, file.usedBy ? null : file.id)));
+      actions.append(use);
+    }
+    row.append(details, actions); $('materials').append(row);
   }
   if (!materials.length) $('materials').append(element('p', 'No files attached yet.', 'muted'));
 }
@@ -197,6 +208,7 @@ function showRecord(record) {
   for (const key of ['title', 'date', 'category', 'notes']) $(key).value = record[key] || '';
   $('tags').value = (record.tags || []).join(', ');
   $('timestamps').textContent = record.id ? `Created: ${timestamp(record.createdAt)} · Last saved: ${timestamp(record.savedAt)}. Experiment date is recorded separately.` : '';
+  if (record.importedFrom) $('timestamps').textContent += ` Imported copy of record ${record.importedFrom.id}.`;
   $('export-record').hidden = !record.id;
   $('export-record').href = record.id ? `/api/archive/${record.id}/export` : '#';
   $('open-review').hidden = !record.hasReviewInputs || !!record.deletedAt;
@@ -225,6 +237,15 @@ async function changeTrash(trashed, file = null) {
   if (!file) $('record-view').value = trashed ? 'trash' : 'active';
   showRecord(record); await refreshCatalog();
   notice(trashed ? 'Moved to trash. Original bytes are retained and can be restored.' : 'Restored. Original materials and analysis state are retained.');
+}
+
+async function selectInput(kind, fileId) {
+  if (state.dirty) throw Error('Save metadata changes before choosing analysis inputs.');
+  const effects = kind === 'image' ? 'Image calibration, extracted points, comparison and calculated results will be cleared.' : 'Selected CSV columns, units, comparison and calculated results will be cleared. Image extraction is retained.';
+  if (!await confirmChange(`Change the saved ${kind === 'csv' ? 'CSV' : 'image'} input? ${effects} Original files remain in the archive.`, fileId ? 'Use selected file' : 'Detach input')) return;
+  const record = await request(`/api/archive/${state.current.id}/inputs`, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-Workbench-Request': '1'}, body: JSON.stringify({revision: state.current.revision, kind, fileId})});
+  showRecord(record); await refreshCatalog();
+  notice(fileId ? 'Analysis input saved. Open spectrum review to select columns, units and processing parameters.' : 'Input detached. Original material is still archived and can now be moved to trash.');
 }
 
 function draft() {

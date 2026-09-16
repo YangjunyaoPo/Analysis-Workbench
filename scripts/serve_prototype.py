@@ -20,9 +20,11 @@ import uuid
 if __package__:
     from .archive_store import ArchiveStore, ConflictError, MAX_FILE
     from .archive_transfer import import_package, MAX_PACKAGE
+    from .review_inputs import choose_input
 else:
     from archive_store import ArchiveStore, ConflictError, MAX_FILE
     from archive_transfer import import_package, MAX_PACKAGE
+    from review_inputs import choose_input
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "prototype"
@@ -216,19 +218,23 @@ class Handler(BaseHTTPRequestHandler):
                     result = store.add_file(parts[2], revision, name, body)
                 return self.reply(200, result)
             lifecycle = len(parts) in {4, 6} and parts[-1] in {"trash", "restore"}
+            selecting_input = len(parts) == 4 and parts[3] == "inputs"
             if len(parts) == 6 and parts[3] != "files":
                 lifecycle = False
-            if len(parts) not in {2, 3} and not lifecycle:
+            if len(parts) not in {2, 3} and not lifecycle and not selecting_input:
                 return self.reply(404, {"error": "Not found."})
             if not 0 < size <= 100000 or self.headers.get("Content-Type") != "application/json":
                 return self.reply(400, {"error": "Expected a bounded JSON metadata request."})
             payload = json.loads(self.rfile.read(size))
             with LOCK:
-                if lifecycle:
+                if lifecycle or selecting_input:
                     if not isinstance(payload, dict):
                         raise ValueError("Expected a revision object.")
-                    result = store.set_trashed(parts[2], payload.get("revision"), parts[-1] == "trash",
-                                              parts[4] if len(parts) == 6 else None)
+                    if selecting_input:
+                        result = choose_input(store, parts[2], payload.get("revision"), payload.get("kind"), payload.get("fileId"))
+                    else:
+                        result = store.set_trashed(parts[2], payload.get("revision"), parts[-1] == "trash",
+                                                  parts[4] if len(parts) == 6 else None)
                 else:
                     result = store.save_metadata(payload, parts[2] if len(parts) == 3 else None)
             return self.reply(200, result)

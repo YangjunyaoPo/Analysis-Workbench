@@ -162,6 +162,21 @@ class PersistenceTests(unittest.TestCase):
         self.assertEqual(self.binary_request("/api/archive/import", package, origin="https://example.org")[0], 403)
         self.assertEqual(len(self.request("/api/archive")[1]["records"]), 2)
 
+    def test_archived_csv_can_be_selected_saved_and_detached(self):
+        _, record = self.request("/api/archive", {"title": "Archive analysis"})
+        path = "/api/archive/" + record["id"]
+        _, _, upload = self.binary_request(path + "/files?name=triangle.csv", b"x,y\n0,0\n1,2\n2,0")
+        file_id = json.loads(upload)["record"]["materials"][0]["id"]
+        self.assertEqual(self.request(path + "/inputs", {"revision": 2, "kind": "csv", "fileId": file_id})[0], 200)
+        _, analysis = self.request("/api/records/" + record["id"])
+        self.assertEqual(analysis["assets"]["csvText"], "x,y\n0,0\n1,2\n2,0")
+        analysis["result"] = {"area": 2}
+        self.assertEqual(self.request("/api/records", analysis)[0], 200)
+        self.assertEqual(self.request(path)[1]["materials"][0]["usedBy"], "csv")
+        self.assertEqual(self.request(path + "/files/" + file_id + "/trash", {"revision": 4})[0], 400)
+        self.assertEqual(self.request(path + "/inputs", {"revision": 4, "kind": "csv", "fileId": None})[0], 200)
+        self.assertEqual(self.request(path + "/files/" + file_id + "/trash", {"revision": 5})[0], 200)
+
 
 if __name__ == "__main__":
     unittest.main()

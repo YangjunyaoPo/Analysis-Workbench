@@ -10,6 +10,7 @@ let busy = false;
 
 function notice(text,error=false){$('notice').textContent=text;$('notice').classList.toggle('error',error);}
 function dirty(){state.dirty=true;$('save-state').textContent='Unsaved changes';}
+function updateArchiveLink(){document.querySelector('a.archive-link').href=state.id?`/archive#${state.id}`:'/archive';}
 function clearResult(){state.result=null;state.comparison=null;renderResults();}
 function invalidateExtraction(){state.extraction=null;state.undo=[];$('reviewed').checked=false;clearResult();renderExtraction();draw();}
 function changedCurve(){clearResult();$('reviewed').checked=false;dirty();renderExtraction();draw();}
@@ -116,6 +117,7 @@ function renderResults(){
 }
 function reset(){
   Object.assign(state,{id:null,revision:0,dirty:false,assets:{},table:null,calibration:{},extraction:null,result:null,comparison:null,sampleCalibration:null,mode:null,undo:[],image:null});
+  updateArchiveLink();
   for(const id of metadata)$(id).value='';$('reviewed').checked=false;$('show-reference').checked=false;
   for(const [id,value] of Object.entries({'analysis-source':'table','trace-color':'#1261a0',tolerance:80,x1:0,x2:1,y1:0,y2:1,'interval-start':0,'interval-end':1}))$(id).value=value;
   $('csv-file').value='';$('image-file').value='';$('save-state').textContent='Unsaved review';
@@ -201,7 +203,7 @@ function snapshot(){return {schema:1,id:state.id,revision:state.revision,title:$
 async function save(){
   if(!$('record-title').value.trim())throw Error('Give the review a title.');
   if(!state.assets.csvText&&!state.assets.imageData)throw Error('Attach at least one material.');
-  const saved=await api('/api/records',snapshot());Object.assign(state,saved);state.dirty=false;$('save-state').textContent='Saved locally';await listRecords();notice('Saved originals, settings, corrections, and results on this computer.');
+  const saved=await api('/api/records',snapshot());Object.assign(state,saved);updateArchiveLink();state.dirty=false;$('save-state').textContent='Saved locally';await listRecords();notice('Saved originals, settings, corrections, and results on this computer.');
 }
 action('save-record',save);
 function download(url,name){const link=document.createElement('a');link.href=url;link.download=name;link.click();}
@@ -217,6 +219,7 @@ function renderRecords(){
 async function openRecord(id){
   if(!canReplace())return;const r=await api('/api/records/'+id);if(r.schema!==1)throw Error('Unsupported saved format.');reset();
   Object.assign(state,{id:r.id,revision:r.revision,assets:r.assets,calibration:r.calibration||{},sampleCalibration:r.sampleCalibration,extraction:r.extraction,result:r.result,comparison:r.comparison});
+  updateArchiveLink();
   for(const [k,v] of Object.entries({'record-title':r.title,'experiment-date':r.date,category:r.category,notes:r.notes,'x-unit':r.settings.xUnit,'y-unit':r.settings.yUnit,'trace-color':r.settings.color,tolerance:r.settings.tolerance,'analysis-source':r.settings.source,'interval-start':r.settings.lo,'interval-end':r.settings.hi}))$(k).value=v;
   for(const key of ['x1','x2','y1','y2'])$(key).value=r.calibration?.[key]??'';
   state.table=r.assets.csvText?parseCSV(r.assets.csvText):null;renderTable();$('x-column').value=r.settings.xi;$('y-column').value=r.settings.yi;renderTablePreview();

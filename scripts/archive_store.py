@@ -167,7 +167,7 @@ class ArchiveStore:
         return materials
 
     def detail(self, record):
-        result = {key: record.get(key) for key in ("id", "title", "date", "category", "notes", "revision", "savedAt", "createdAt", "deletedAt")}
+        result = {key: record.get(key) for key in ("id", "title", "date", "category", "notes", "revision", "savedAt", "createdAt", "deletedAt", "importedFrom")}
         result.update(tags=record.get("tags", []), materials=self.materials(record),
                       trashedMaterials=[m for m in self.materials(record, include_deleted=True) if m.get("deletedAt")],
                       hasAnalysis=bool(record.get("extraction") or record.get("result")),
