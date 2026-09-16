@@ -24,7 +24,8 @@ class TransferTests(unittest.TestCase):
         self.source.add_file(self.identity, 2, "same.txt", b"second")
         record = self.source.read(self.identity)
         record.update(assets={"csvName": "old.csv", "csvText": "x,y\n1,2"},
-                      result={"area": 2}, extraction={"pixels": [{"px": 1.5, "py": 2.5}]})
+                      result={"area": 2, "count": 3, "bounds": [0, 2], "maximum": {"x": 1, "y": 2}},
+                      extraction={"pixels": [{"px": 1.5, "py": 2.5}]})
         self.source.write(record)
         self.source.set_trashed(self.identity, 3, True, record["attachments"][0]["id"])
         output = io.BytesIO()
@@ -126,6 +127,18 @@ class TransferTests(unittest.TestCase):
         self.assert_no_records()
         imported = import_package(self.destination, io.BytesIO(self.package))
         self.assertEqual(imported["title"], "Experiment")
+
+    def test_unrenderable_analysis_shapes_are_rejected_before_import(self):
+        for field, value in (("result", {"area": 2}), ("extraction", {"pixels": "not a list"}),
+                             ("extraction", {"pixels": [None]}), ("settings", {"color": {}})):
+            def malformed(entries):
+                record = json.loads(entries["record.json"])
+                record[field] = value
+                entries["record.json"] = json.dumps(record).encode()
+            with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                import_package(self.destination, self.repack(malformed))
+        self.assert_no_records()
+        self.assertFalse(self.destination.files.exists())
 
 
 if __name__ == "__main__":

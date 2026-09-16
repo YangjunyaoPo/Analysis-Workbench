@@ -24,8 +24,10 @@ are in [Spectrum review](prototype.md).
 
 ## Verification
 
-The development agent ran **31 Python tests and 10 JavaScript tests** after adding
+The development agent ran **32 Python tests and 10 JavaScript tests** after adding
 trash, ZIP import and archived analysis inputs on 2026-09-15; all passed.
+Import also rejects malformed saved results or extracted-point structures that
+would prevent the review page from reopening them.
 They cover storage integrity and failure cases, HTTP
 persistence, filtering, known-answer calculations, and extraction diagnostics.
 

@@ -6,10 +6,12 @@ makes the imported copy visible. Existing records are never overwritten.
 """
 import hashlib
 import json
+import math
 from pathlib import PurePosixPath
 import stat
 import uuid
 import zipfile
+import zlib
 
 if __package__:
     from .archive_store import HASH, IDENTIFIER, MAX_FILE, MAX_RECORD_BYTES, MAX_RECORD_FILES, metadata, now
@@ -54,6 +56,21 @@ def validate_snapshot(record):
     for key in ("extraction", "result", "comparison", "sampleCalibration"):
         if record.get(key) is not None and not isinstance(record[key], dict):
             raise ValueError(f"Invalid {key} in record snapshot.")
+    def finite(value):
+        return type(value) in {int, float} and math.isfinite(value)
+    extraction = record.get("extraction")
+    if extraction is not None:
+        pixels = extraction.get("pixels")
+        if not isinstance(pixels, list) or any(not isinstance(p, dict) or not finite(p.get("px"))
+                                              or (p.get("py") is not None and not finite(p["py"])) for p in pixels):
+            raise ValueError("Invalid extracted points in record snapshot.")
+    result = record.get("result")
+    if result is not None:
+        maximum, bounds = result.get("maximum"), result.get("bounds")
+        if (not isinstance(maximum, dict) or not all(finite(maximum.get(k)) for k in ("x", "y"))
+                or not isinstance(bounds, list) or len(bounds) != 2 or not all(finite(v) for v in bounds)
+                or not finite(result.get("area")) or type(result.get("count")) is not int or result["count"] < 2):
+            raise ValueError("Incomplete or invalid calculation result in record snapshot.")
     for key, value in record["assets"].items():
         if not isinstance(value, str):
             raise ValueError("Analysis asset fields must be text.")
@@ -72,13 +89,15 @@ def validate_snapshot(record):
                 "tolerance": 80, "source": "table", "lo": "0", "hi": "1"}
     for key, value in defaults.items():
         record["settings"].setdefault(key, value)
+    if any(isinstance(value, (dict, list)) for value in record["settings"].values()):
+        raise ValueError("Invalid review settings in record snapshot.")
 
 
 def import_package(store, source):
     """Import one exported record as an independent copy after complete validation."""
     try:
         return _import_package(store, source)
-    except (zipfile.BadZipFile, RuntimeError, NotImplementedError, KeyError, TypeError, AttributeError) as error:
+    except (zipfile.BadZipFile, zlib.error, RuntimeError, NotImplementedError, KeyError, TypeError, AttributeError, OverflowError) as error:
         raise ValueError("Invalid or unsupported archive package.") from error
 
 
@@ -122,7 +141,7 @@ def _import_package(store, source):
                 if item.get(key) != descriptor.get(key):
                     raise ValueError("Attachment metadata differs from its manifest.")
             name, size, digest = item["name"], item["size"], item["sha256"]
-            if not isinstance(name, str) or not name or len(name) > 255 or any(c in name for c in '/\\') or any(ord(c) < 32 for c in name):
+            if not isinstance(name, str) or not name or name in {".", ".."} or len(name) > 255 or any(c in name for c in '/\\') or any(ord(c) < 32 for c in name):
                 raise ValueError("Invalid original filename.")
             if type(size) is not int or not 0 <= size <= MAX_FILE or not isinstance(digest, str) or not HASH.fullmatch(digest):
                 raise ValueError("Invalid attachment size or hash.")
