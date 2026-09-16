@@ -52,6 +52,7 @@ interactive browser tests or download the research datasets.
 - [Prototype guide, implementation, and measured limits](docs/prototype.md)
 - [Sample evaluation, reference calculations, and reproduction](docs/sample-evaluation.md)
 - [Current status and verification limits](docs/status.md)
+- [Implementation tour and reproducible walkthrough](docs/development.md)
 
 ## Development
 
